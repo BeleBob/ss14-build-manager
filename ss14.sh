@@ -922,6 +922,7 @@ cmd_install() {
         [ -n "${SS14_DIR:-}" ] && die "$err" "$dir"
         say "$err" "$dir"
         dir="$(ask ask_dir "$DEFAULT_DIR")"
+        [ -n "$dir" ] || die cancelled
     done
     name="$(ask ask_name "${NAME_DEFAULT:-$preset}")"
     [[ "$name" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]] || die bad_name

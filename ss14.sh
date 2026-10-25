@@ -113,6 +113,13 @@ declare -A MSG_EN=(
     [path_warn]="Note: %s is not in PATH. Add this line to ~/.zshrc or ~/.bashrc: export PATH=%s:\$PATH"
     [next_hint]="Next: %s start   (menu: %s)"
     [no_builds_intro]="No builds yet. Install one with: %s install"
+    [custom_label]="Custom repository URL"
+    [ask_url]="Git repository URL"
+    [bad_url]="Enter an https:// or git@ URL"
+    [custom_confirm]="Clone and build code from %s? It runs on this computer. (y/n)"
+    [server_pick]="Several server projects found: pick one"
+    [no_server_project]="No *.Server.csproj found in the repository"
+    [client_missing]="No client project %s found: only the server is built"
     [bad_dir_abs]="The path must be absolute or start with ~/"
     [dir_is_file]="%s is a file, not a folder"
     [dir_other_repo]="%s is a git repository of another project"
@@ -270,6 +277,13 @@ declare -A MSG_RU=(
     [path_warn]="Внимание: %s нет в PATH. Добавьте строку в ~/.zshrc или ~/.bashrc: export PATH=%s:\$PATH"
     [next_hint]="Дальше: %s start   (меню: %s)"
     [no_builds_intro]="Сборок пока нет. Установите одну командой: %s install"
+    [custom_label]="Своя ссылка на репозиторий"
+    [ask_url]="Ссылка на git-репозиторий"
+    [bad_url]="Введите ссылку https:// или git@"
+    [custom_confirm]="Скачать и собрать код из %s? Он будет запущен на этом компьютере. (y/n)"
+    [server_pick]="Найдено несколько серверных проектов: выберите"
+    [no_server_project]="В репозитории нет *.Server.csproj"
+    [client_missing]="Клиентский проект %s не найден: собирается только сервер"
     [bad_dir_abs]="Путь должен быть абсолютным или начинаться с ~/"
     [dir_is_file]="%s — это файл, а не папка"
     [dir_other_repo]="%s — git-репозиторий другого проекта"
@@ -864,6 +878,29 @@ cmd_uninstall() {
     fi
 }
 
+# Finds the server project (*.Server.csproj) and its client pair in a cloned custom repository.
+detect_projects() {
+    local -a found=()
+    local csproj
+    while IFS= read -r csproj; do
+        found+=("$(basename "$csproj" .csproj)")
+    done < <(find . -maxdepth 3 -name '*.Server.csproj' -not -path './RobustToolbox/*' | sort)
+    [ "${#found[@]}" -gt 0 ] || die no_server_project
+    if [ "${#found[@]}" -eq 1 ]; then
+        SERVER_PROJECT="${found[0]}"
+    else
+        pick "$(m server_pick)" 0 "${found[@]}" || die cancelled
+        SERVER_PROJECT="${found[$PICK]}"
+    fi
+    local client="${SERVER_PROJECT%.Server}.Client"
+    if [ -f "$client/$client.csproj" ]; then
+        BUILD_PROJECTS="$SERVER_PROJECT $client"
+    else
+        say client_missing "$client"
+        BUILD_PROJECTS="$SERVER_PROJECT"
+    fi
+}
+
 cmd_install() {
     local preset="${1:-}" dir name cmd_name required project server_dll conf existing err
     if [ -z "$preset" ]; then
@@ -886,7 +923,7 @@ cmd_install() {
         say "$err" "$dir"
         dir="$(ask ask_dir "$DEFAULT_DIR")"
     done
-    name="$(ask ask_name "$preset")"
+    name="$(ask ask_name "${NAME_DEFAULT:-$preset}")"
     [[ "$name" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]] || die bad_name
     if [ -f "$CONF_DIR/$name.conf" ]; then
         is_yes "$(ask ask_overwrite n "$name")" || die cancelled
@@ -899,11 +936,15 @@ cmd_install() {
         is_yes "$(ask cmd_taken n "$cmd_name" "$existing")" || die pick_other
     fi
 
+    if [ -n "${CUSTOM:-}" ] && [ ! -d "$dir/.git" ]; then
+        is_yes "$(ask custom_confirm n "$REPO_URL")" || die cancelled
+    fi
     if [ ! -d "$dir/.git" ]; then
         say cloning "$REPO_URL"
         git clone --depth 1 "$REPO_URL" "$dir" || die clone_fail
     fi
     cd "$dir" || die not_git "$dir"
+    if [ -n "${CUSTOM:-}" ]; then detect_projects; fi
 
     required="$(required_sdk "$dir")"; required="${required:-10.0.100}"
     ensure_dotnet "$required"
@@ -920,7 +961,10 @@ cmd_install() {
     fi
 
     server_dll="$dir/bin/Content.Server/$SERVER_PROJECT.dll"
-    [ -f "$server_dll" ] || die server_missing "$server_dll"
+    if [ -n "${CUSTOM:-}" ] && [ ! -f "$server_dll" ]; then
+        server_dll="$(find "$dir/bin" -name "$SERVER_PROJECT.dll" 2>/dev/null | head -n1)"
+    fi
+    [ -f "${server_dll:-}" ] || die server_missing "${server_dll:-$dir/bin/Content.Server/$SERVER_PROJECT.dll}"
 
     conf="$CONF_DIR/$name.conf"
     {
@@ -946,7 +990,18 @@ cmd_install() {
 }
 
 # Presets: repository, default folder, server project, projects to build, display name.
+# A custom repository: the server and client projects are found after cloning.
+load_custom() {
+    REPO_URL="${1%/}"
+    CUSTOM=1
+    PRESET_NAME="$(basename "$REPO_URL")"; PRESET_NAME="${PRESET_NAME%.git}"
+    NAME_DEFAULT="$(echo "$PRESET_NAME" | tr '[:upper:]' '[:lower:]')"
+    DEFAULT_DIR="$HOME/ss14-builds/$PRESET_NAME"
+    SERVER_PROJECT=""; BUILD_PROJECTS=""
+}
+
 load_preset() {
+    if [[ "$1" =~ ^(https://|http://|git@|ssh://)[^[:space:]]+$ ]]; then load_custom "$1"; return; fi
     case "$1" in
         astra)
             PRESET_NAME="Astra Station"; REPO_URL="https://github.com/makura-games/astra-station"
@@ -979,14 +1034,24 @@ load_preset() {
 }
 
 choose_preset() {
-    local presets=(astra reserve sunrise lust goob deadspace)
+    local presets=(astra reserve sunrise lust goob deadspace custom)
     local labels=("$(printf '%-18s %s' 'Astra Station' '(makura-games/astra-station)')"
                   "$(printf '%-18s %s' 'Reserve Station' '(Reserve-Station/Reserve-Station)')"
                   "$(printf '%-18s %s' 'Sunrise Station' '(makura-games/sunrise-station)')"
                   "$(printf '%-18s %s' 'Lust Station' '(makura-games/lust-station)')"
                   "$(printf '%-18s %s' 'Goob Station' '(Goob-Station/Goob-Station)')"
-                  "$(printf '%-18s %s' 'Dead Space' '(dead-space-server/dead-space-14)')")
+                  "$(printf '%-18s %s' 'Dead Space' '(dead-space-server/dead-space-14)')"
+                  "$(m custom_label)")
     pick "$(m t_pick_server)" 0 "${labels[@]}" || return 1
+    if [ "${presets[$PICK]}" = custom ]; then
+        local url=""
+        while ! [[ "$url" =~ ^(https://|http://|git@|ssh://)[^[:space:]]+$ ]]; do
+            url="$(clean_path "$(ask ask_url "https://github.com/")")"
+            [[ "$url" =~ ^(https://|http://|git@|ssh://)[^[:space:]]+$ ]] || say bad_url
+        done
+        PRESET_PICKED="${url%/}"
+        return 0
+    fi
     PRESET_PICKED="${presets[$PICK]}"
 }
 

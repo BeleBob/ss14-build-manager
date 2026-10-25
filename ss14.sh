@@ -1236,7 +1236,7 @@ draw_main() {
     clear_screen
     banner "$(m menu_title)"
     cur="$(default_build 2>/dev/null || true)"
-    echo "  $(m default_is "${C_BOLD}$(disp "${cur:-—}")${C_RST}")"
+    [ -n "$cur" ] && echo "  $(m default_is "${C_BOLD}$(disp "$cur")${C_RST}")"
     for ((row = 0; row < ${#MENU_ITEMS[@]}; row++)); do
         split_item "$row"
         if [ -z "$IA" ]; then
@@ -1376,10 +1376,6 @@ menu() {
 
 main() {
     if [ $# -eq 0 ]; then
-        if [ -z "$(builds)" ]; then
-            say no_builds_intro "$CMD"
-            return
-        fi
         menu
         return
     fi

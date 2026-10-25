@@ -765,7 +765,7 @@ update_build() {
 
 list_builds() {
     local list; list="$(builds)"
-    if [ -z "$list" ]; then say no_builds_intro; return 0; fi
+    if [ -z "$list" ]; then say no_builds_intro "$CMD"; return 0; fi
     status_build
 }
 
@@ -956,7 +956,7 @@ load_preset() {
             SERVER_PROJECT="Content.Goobstation.Server"
             BUILD_PROJECTS="Content.Goobstation.Server Content.Goobstation.Client" ;;
         deadspace)
-            PRESET_NAME="Dead Space 14"; REPO_URL="https://github.com/dead-space-server/dead-space-14"
+            PRESET_NAME="Dead Space"; REPO_URL="https://github.com/dead-space-server/dead-space-14"
             DEFAULT_DIR="$HOME/ss14-builds/dead-space-14"
             SERVER_PROJECT="Content.Server"; BUILD_PROJECTS="Content.Server Content.Client" ;;
         *) die bad_preset "$1" ;;
@@ -970,7 +970,7 @@ choose_preset() {
                   "$(printf '%-18s %s' 'Sunrise Station' '(makura-games/sunrise-station)')"
                   "$(printf '%-18s %s' 'Lust Station' '(makura-games/lust-station)')"
                   "$(printf '%-18s %s' 'Goob Station' '(Goob-Station/Goob-Station)')"
-                  "$(printf '%-18s %s' 'Dead Space 14' '(dead-space-server/dead-space-14)')")
+                  "$(printf '%-18s %s' 'Dead Space' '(dead-space-server/dead-space-14)')")
     pick "$(m t_pick_server)" 0 "${labels[@]}" || return 1
     PRESET_PICKED="${presets[$PICK]}"
 }

@@ -109,8 +109,12 @@ declare -A MSG_EN=(
     [registered]="Build '%s' registered; command '%s' installed to %s."
     [path_warn]="Note: %s is not in PATH. Add this line to ~/.zshrc or ~/.bashrc: export PATH=%s:\$PATH"
     [next_hint]="Next: %s start   (menu: %s)"
-    [ask_install_now]="Install a server now? (y/n)"
-    [no_builds_intro]="No builds."
+    [no_builds_intro]="No builds yet. Install one with: %s install"
+    [bad_dir_abs]="The path must be absolute or start with ~/"
+    [dir_is_file]="%s is a file, not a folder"
+    [dir_other_repo]="%s is a git repository of another project"
+    [dir_not_empty]="%s exists and is not empty"
+    [dir_no_write]="No permission to create %s"
     [usage]="Usage: %s {install|doctor|list|start|stop|restart|status|logs|update|use|remove|settings|uninstall} [build] [args]"
     [uninstall_running]="Stop these servers first: %s"
     [uninstall_cmd]="Remove the command %s? (y/n)"
@@ -259,8 +263,12 @@ declare -A MSG_RU=(
     [registered]="Сборка '%s' зарегистрирована; команда '%s' установлена в %s."
     [path_warn]="Внимание: %s нет в PATH. Добавьте строку в ~/.zshrc или ~/.bashrc: export PATH=%s:\$PATH"
     [next_hint]="Дальше: %s start   (меню: %s)"
-    [ask_install_now]="Установить сервер сейчас? (y/n)"
-    [no_builds_intro]="Сборок нет."
+    [no_builds_intro]="Сборок пока нет. Установите одну командой: %s install"
+    [bad_dir_abs]="Путь должен быть абсолютным или начинаться с ~/"
+    [dir_is_file]="%s — это файл, а не папка"
+    [dir_other_repo]="%s — git-репозиторий другого проекта"
+    [dir_not_empty]="%s существует и не пустая"
+    [dir_no_write]="Нет прав создать %s"
     [usage]="Использование: %s {install|doctor|list|start|stop|restart|status|logs|update|use|remove|settings|uninstall} [сборка] [аргументы]"
     [uninstall_running]="Сначала остановите серверы: %s"
     [uninstall_cmd]="Удалить команду %s? (y/n)"
@@ -780,6 +788,34 @@ remove_build() {
 
 # ---------- Install ----------
 
+# Trims spaces and a trailing slash, expands a leading ~.
+clean_path() {
+    local p="$1"
+    p="${p#"${p%%[![:space:]]*}"}"
+    p="${p%"${p##*[![:space:]]}"}"
+    p="${p/#\~/$HOME}"
+    [ "$p" = / ] || p="${p%/}"
+    echo "$p"
+}
+
+# Prints the error key if the folder cannot be used for the repository, nothing if it can.
+check_dir() {
+    local d="$1" url anc
+    [[ "$d" = /* ]] || { echo bad_dir_abs; return; }
+    if [ -e "$d" ]; then
+        [ -d "$d" ] || { echo dir_is_file; return; }
+        if [ -d "$d/.git" ]; then
+            url="$(git -C "$d" config --get remote.origin.url 2>/dev/null || true)"
+            [ "${url%.git}" = "${REPO_URL%.git}" ] || echo dir_other_repo
+            return
+        fi
+        [ -z "$(ls -A "$d")" ] || { echo dir_not_empty; return; }
+    fi
+    anc="$d"
+    while [ ! -e "$anc" ]; do anc="$(dirname "$anc")"; done
+    [ -w "$anc" ] || echo dir_no_write
+}
+
 # Copies this script to BIN_DIR under the chosen command name.
 install_self() {
     local target="$BIN_DIR/$1"
@@ -814,7 +850,7 @@ cmd_uninstall() {
 }
 
 cmd_install() {
-    local preset="${1:-}" dir name cmd_name required project server_dll conf existing
+    local preset="${1:-}" dir name cmd_name required project server_dll conf existing err
     if [ -z "$preset" ]; then
         choose_preset || return 0
         preset="$PRESET_PICKED"
@@ -827,6 +863,14 @@ cmd_install() {
     systemctl --user show-environment >/dev/null 2>&1 || die no_user_session "$USER"
 
     dir="${SS14_DIR:-$(ask ask_dir "$DEFAULT_DIR")}"
+    while :; do
+        dir="$(clean_path "$dir")"
+        err="$(check_dir "$dir")"
+        [ -z "$err" ] && break
+        [ -n "${SS14_DIR:-}" ] && die "$err" "$dir"
+        say "$err" "$dir"
+        dir="$(ask ask_dir "$DEFAULT_DIR")"
+    done
     name="$(ask ask_name "$preset")"
     [[ "$name" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]] || die bad_name
     if [ -f "$CONF_DIR/$name.conf" ]; then
@@ -840,7 +884,6 @@ cmd_install() {
         is_yes "$(ask cmd_taken n "$cmd_name" "$existing")" || die pick_other
     fi
 
-    if [ -e "$dir" ] && [ ! -d "$dir/.git" ]; then die not_git "$dir"; fi
     if [ ! -d "$dir/.git" ]; then
         say cloning "$REPO_URL"
         git clone --depth 1 "$REPO_URL" "$dir" || die clone_fail
@@ -1232,8 +1275,7 @@ menu() {
 main() {
     if [ $# -eq 0 ]; then
         if [ -z "$(builds)" ]; then
-            say no_builds_intro
-            is_yes "$(ask ask_install_now y)" && cmd_install
+            say no_builds_intro "$CMD"
             return
         fi
         menu

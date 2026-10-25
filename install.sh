@@ -37,5 +37,6 @@ case ":$PATH:" in
     *) echo "Warning: $BIN_DIR is not in PATH" >&2 ;;
 esac
 
-# Run the manager's own installer: it asks for the build and uses the name chosen above.
-SS14_CMD="$name" "$target" install < /dev/tty
+echo
+echo "Installed: $name -> $target"
+echo "Next: $name install   (choose a build; no server is installed here)"

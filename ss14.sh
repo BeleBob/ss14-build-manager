@@ -896,11 +896,18 @@ cmd_uninstall() {
 detect_projects() {
     local -a found=()
     local csproj
+    SERVER_PROJECT=""
     while IFS= read -r csproj; do
         found+=("$(basename "$csproj" .csproj)")
     done < <(find . -maxdepth 3 -name '*.Server.csproj' -not -path './RobustToolbox/*' | sort)
     [ "${#found[@]}" -gt 0 ] || die no_server_project
-    if [ "${#found[@]}" -eq 1 ]; then
+    local known
+    for known in Content.Server Content.Goobstation.Server; do
+        [[ " ${found[*]} " == *" $known "* ]] && { SERVER_PROJECT="$known"; break; }
+    done
+    if [ -n "${SERVER_PROJECT:-}" ]; then
+        :
+    elif [ "${#found[@]}" -eq 1 ]; then
         SERVER_PROJECT="${found[0]}"
     else
         pick "$(m server_pick)" 0 "${found[@]}" || die cancelled

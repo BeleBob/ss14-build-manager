@@ -81,6 +81,8 @@ declare -A MSG_EN=(
     [pull_fail]="git pull failed, update cancelled."
     [build_fail]="build of %s failed."
     [built]="%s built."
+    [update_failed]="Update of %s failed; see the error above."
+    [update_restart]="Starting %s again on the previous version."
     [default_is]="Default: %s"
     [rm_ask]="Delete '%s' and its folder %s (%s)? This cannot be undone. (y/n)"
     [cancelled]="cancelled"
@@ -245,6 +247,8 @@ declare -A MSG_RU=(
     [pull_fail]="git pull не прошёл, обновление отменено."
     [build_fail]="сборка %s не удалась."
     [built]="%s собран."
+    [update_failed]="Обновление %s не удалось; см. ошибку выше."
+    [update_restart]="Запускаю %s снова на прежней версии."
     [default_is]="По умолчанию: %s"
     [rm_ask]="Удалить '%s' и её папку %s (%s)? Это нельзя отменить. (y/n)"
     [cancelled]="отменено"
@@ -762,9 +766,19 @@ logs_build() {
     fi
 }
 
+# Pull, submodule and build; returns non-zero on the first failure.
+update_steps() {
+    git pull --ff-only || { say pull_fail; return 1; }
+    git submodule update --init --recursive -- RobustToolbox || return 1
+    for project in $BUILD_PROJECTS; do
+        "$DOTNET_BIN" build "$project" -c Release -p:UseAppHost=false \
+            || { say build_fail "$project"; return 1; }
+    done
+}
+
 update_build() {
     split_name "$@"
-    local name="$NAME" project was_active=0
+    local name="$NAME" was_active=0 rc=0
     load_build "$name"
     cd "$REPO" || return 1
     if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
@@ -772,12 +786,12 @@ update_build() {
     fi
     is_active "$name" && was_active=1
     [ "$was_active" = 1 ] && stop_one "$name"
-    git pull --ff-only || { say pull_fail; return 1; }
-    git submodule update --init --recursive -- RobustToolbox || return 1
-    for project in $BUILD_PROJECTS; do
-        "$DOTNET_BIN" build "$project" -c Release -p:UseAppHost=false \
-            || { say build_fail "$project"; return 1; }
-    done
+    update_steps || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        say update_failed "$(disp "$name")"
+        if [ "$was_active" = 1 ]; then say update_restart "$(disp "$name")"; start_build "$name"; fi
+        return 1
+    fi
     say built "$name"
     [ "$was_active" = 1 ] && start_build "$name"
     return 0

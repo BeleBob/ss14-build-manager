@@ -14,7 +14,7 @@
 #   logs [build] [args]        args are journalctl options
 #   update [build]             git pull, rebuild, restart if it was running
 #   use <build>                make a build the default
-#   remove <build>             remove from the manager (repository files stay)
+#   remove <build>             delete the build folder from disk (asks first)
 #   settings                   language and base port
 #   uninstall                  remove the command (and optionally its settings); repositories stay
 #   no arguments               interactive menu
@@ -82,9 +82,12 @@ declare -A MSG_EN=(
     [build_fail]="build of %s failed."
     [built]="%s built."
     [default_is]="Default: %s"
-    [rm_ask]="Remove '%s' from the manager? Repository files stay. (y/n)"
+    [rm_ask]="Delete '%s' and its folder %s (%s)? This cannot be undone. (y/n)"
     [cancelled]="cancelled"
-    [removed]="'%s' removed from the manager."
+    [removed]="'%s' deleted from disk."
+    [rm_running]="Stop the server first: %s"
+    [rm_unsafe]="Refusing to delete %s: only folders inside ~/ss14-builds are removed automatically"
+    [rm_shared]="Refusing to delete: another build uses %s"
     [replace_ask]="File %s exists. Replace it? (y/n)"
     [install_fail_copy]="could not install %s"
     [install_head]="=== Install: %s ==="
@@ -173,7 +176,7 @@ declare -A MSG_EN=(
     [item_use]="Default build"
     [item_update]="Update a build"
     [item_install]="Install a new build"
-    [item_remove]="Remove a build from the manager"
+    [item_remove]="Delete a build from disk"
     [item_doctor]="Check installation"
     [item_logs]="Build logs"
     [item_settings]="Settings"
@@ -236,9 +239,12 @@ declare -A MSG_RU=(
     [build_fail]="сборка %s не удалась."
     [built]="%s собран."
     [default_is]="По умолчанию: %s"
-    [rm_ask]="Убрать '%s' из менеджера? Файлы репозитория останутся. (y/n)"
+    [rm_ask]="Удалить '%s' и её папку %s (%s)? Это нельзя отменить. (y/n)"
     [cancelled]="отменено"
-    [removed]="'%s' убрана из менеджера."
+    [removed]="'%s' удалена с диска."
+    [rm_running]="Сначала остановите сервер: %s"
+    [rm_unsafe]="Не удаляю %s: автоматически удаляются только папки внутри ~/ss14-builds"
+    [rm_shared]="Не удаляю: другая сборка использует %s"
     [replace_ask]="Файл %s уже есть. Заменить? (y/n)"
     [install_fail_copy]="не удалось установить %s"
     [install_head]="=== Установка: %s ==="
@@ -327,7 +333,7 @@ declare -A MSG_RU=(
     [item_use]="Сборка по умолчанию"
     [item_update]="Обновить сборку"
     [item_install]="Установить новую сборку"
-    [item_remove]="Убрать сборку из менеджера"
+    [item_remove]="Удалить сборку с диска"
     [item_doctor]="Проверка установки"
     [item_logs]="Логи сборки"
     [item_settings]="Настройки"
@@ -777,11 +783,20 @@ use_build() {
 }
 
 remove_build() {
-    local name="${1:-}"
+    local name="${1:-}" repo other other_repo size
     [ -n "$name" ] || die remove_usage "$CMD"
     [ -f "$CONF_DIR/$name.conf" ] || die no_build_short "$name"
-    is_yes "$(ask rm_ask n "$name")" || die cancelled
-    stop_one "$name" >/dev/null
+    is_active "$name" && die rm_running "$(disp "$name")"
+    repo="$(. "$CONF_DIR/$name.conf"; echo "$REPO")"
+    case "$repo" in "$HOME/ss14-builds/"?*) ;; *) die rm_unsafe "$repo" ;; esac
+    for other in $(builds); do
+        [ "$other" = "$name" ] && continue
+        other_repo="$(. "$CONF_DIR/$other.conf"; echo "$REPO")"
+        [ "$other_repo" = "$repo" ] && die rm_shared "$repo"
+    done
+    size="$(du -sh "$repo" 2>/dev/null | cut -f1)"
+    is_yes "$(ask rm_ask n "$(disp "$name")" "$repo" "${size:-?}")" || die cancelled
+    rm -rf -- "$repo"
     rm -f "$CONF_DIR/$name.conf" "$STATE_DIR/$name.port"
     res removed "$(disp "$name")"
 }

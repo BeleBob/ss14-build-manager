@@ -1,33 +1,62 @@
 # ss14-build-manager
 
-Install and manage Space Station 14 servers (several builds on one shared port) from a single command.
+Менеджер сборок Space Station 14: устанавливает серверы нескольких форков (Astra, Reserve, Sunrise, Lust, Goob, Dead Space) и управляет ими одной командой. Все сборки используют общий порт, при одновременном запуске нескольких свободный порт выбирается автоматически.
 
-## Install
+**[Исходный код](https://github.com/BeleBob/ss14-build-manager)**
 
+## Содержание
+- [Возможности](#возможности)
+- [Использование](#использование)
+- [Разработка](#разработка)
+- [Contributing](#contributing)
+
+## Возможности
+- **Установка одной командой.** Установщик спрашивает имя команды, кладёт менеджер в `~/.local/bin` под этим именем и запускает выбор сборки.
+- **Готовые пресеты.** Astra, Reserve, Sunrise, Lust, Goob и Dead Space: репозиторий, нужная версия .NET и проект сервера уже заданы.
+- **Автоматический .NET.** Версия SDK берётся из `global.json` репозитория. Если нужной версии нет, менеджер предложит установить её.
+- **Общий порт.** Первая сборка получает базовый порт (по умолчанию 1212). Если он занят запущенной сборкой, следующая получает ближайший свободный.
+- **Защита от повторного запуска.** Уже запущенную сборку или вторую сборку из того же репозитория на том же месте запустить нельзя.
+- **Прогресс и логи.** При запуске показываются ход ожидания готовности сервера и последние строки журнала.
+- **Интерактивное меню.** Навигация стрелками или цифрами, `q`/`Esc` для возврата, интерфейс на русском или английском по языку системы.
+- **Диагностика.** `doctor` проверяет инструменты, .NET, сборку, состояние сервера и ответ `/info`.
+
+## Использование
+
+### Требования
+- Linux с пользовательской сессией systemd (`systemd --user`).
+- `git`, `curl`, `systemd-run`.
+- Для сборки сервера нужен .NET SDK; менеджер проверит версию и предложит установку.
+
+### Установка
 ```sh
 curl -fsSL https://raw.githubusercontent.com/BeleBob/ss14-build-manager/main/install.sh | bash
 ```
 
-The installer asks for the command name (default `ss14`), installs the manager under that name into `~/.local/bin`, and then starts the build setup.
+Установщик спрашивает имя команды (по умолчанию `ss14`), затем предлагает выбрать сборку. Репозиторий будет клонирован в `~/ss14-builds/<имя>`.
 
-## Usage
-
-```text
-<command>                  interactive menu
-<command> install [preset] install a build (astra, reserve, sunrise, lust, goob, deadspace)
-<command> start|stop|restart|status|logs|update [build]
-<command> list | doctor | settings | remove <build>
-<command> uninstall        remove the command (repositories stay)
+### Основные команды
+```sh
+ss14                        # интерактивное меню
+ss14 install [пресет]       # установить сборку
+ss14 start [сборка]         # запустить сервер
+ss14 stop [сборка|all]      # остановить сервер
+ss14 restart [сборка]       # перезапустить сервер
+ss14 status [сборка]        # состояние
+ss14 list                   # все сборки и их состояние
+ss14 logs [сборка]          # журнал сервера
+ss14 update [сборка]        # git pull, пересборка и перезапуск при необходимости
+ss14 doctor [сборка]        # проверка установки (--smoke: запуск и проверка /info)
+ss14 settings               # язык и базовый порт
+ss14 remove <сборка>        # убрать сборку из менеджера (файлы репозитория остаются)
+ss14 uninstall              # удалить команду (репозитории остаются)
 ```
 
-## Requirements
-
-Linux with systemd user session, git, curl, and the .NET SDK (installed automatically when missing, the required version is read from the repository's `global.json`).
-
-## Uninstall
+## Разработка
+Скрипт один — `ss14.sh`, зависимостей сборки нет. Проверка синтаксиса:
 
 ```sh
-<command> uninstall
+bash -n ss14.sh && bash -n install.sh
 ```
 
-It asks before removing the command and before removing settings in `~/.config/ss14` and `~/.local/state/ss14`. Build repositories are never deleted.
+## Contributing
+Сообщения об ошибках и предложения принимаются через [Issues](https://github.com/BeleBob/ss14-build-manager/issues). Изменения предлагаются через pull request в ветку `main`. Перед отправкой проверьте синтаксис и запустите `ss14 doctor` на затронутой сборке.

@@ -17,7 +17,12 @@ ask() {
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 
 name="$(ask 'Command name' ss14)"
-[[ "$name" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]] || { echo "Bad name: use letters, digits, '-' or '_', starting with a letter" >&2; exit 1; }
+lower="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+if [ "$lower" != "$name" ]; then
+    echo "Command names are lowercase: using '$lower'"
+    name="$lower"
+fi
+[[ "$name" =~ ^[a-z][a-z0-9_-]*$ ]] || { echo "Bad name: use lowercase letters, digits, '-' or '_', starting with a letter" >&2; exit 1; }
 
 target="$BIN_DIR/$name"
 if [ -e "$target" ]; then
@@ -32,11 +37,28 @@ chmod 755 "$tmp"
 mv -f "$tmp" "$target"
 trap - EXIT
 
+next="$name"
 case ":$PATH:" in
-    *":$BIN_DIR:"*) ;;
-    *) echo "Warning: $BIN_DIR is not in PATH" >&2 ;;
+    *":$BIN_DIR:"*)
+        ;;
+    *)
+        # Write the PATH line with $HOME, so the rc file stays valid on any machine.
+        shown_dir="${BIN_DIR/#$HOME/\$HOME}"
+        line="export PATH=\"$shown_dir:\$PATH\""
+        rc="$HOME/.bashrc"
+        [ "$(basename "${SHELL:-}")" = zsh ] && rc="$HOME/.zshrc"
+        echo
+        echo "$BIN_DIR is not in PATH, so '$name' will not be found in a new terminal."
+        if [[ "$(ask "Add it to $rc? (y/n)" y)" =~ ^[yY]$ ]]; then
+            grep -qsF "$line" "$rc" || printf '\n# ss14\n%s\n' "$line" >> "$rc"
+            echo "Added to $rc. Open a new terminal (or run: source $rc)."
+        else
+            echo "Add this line to your shell config yourself: $line"
+        fi
+        next="$target"
+        ;;
 esac
 
 echo
 echo "Installed: $name -> $target"
-echo "Next: $name install   (choose a build; no server is installed here)"
+echo "Next: $next install   (choose a build; no server is installed here)"
